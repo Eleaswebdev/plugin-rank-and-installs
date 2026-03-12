@@ -1,0 +1,5 @@
+{
+  "name": "WP Plugin Install Estimator",
+  "description": "Estimates accurate WordPress plugin active installs using popularity rankings and bracket interpolation.",
+  "requestFramePermissions": []
+}
