@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { RankedPlugin } from './types.ts';
-import { parseInstalls } from './parseInstalls.ts';
+import { RankedPlugin } from './types';
+import { parseInstalls } from './parseInstalls';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -16,14 +16,14 @@ async function fetchPluginDetail(slug: string): Promise<{ ptEstimate: number | n
       timeout: 10000
     });
     const $ = cheerio.load(response.data);
-
+    
     let ptEstimate: number | null = null;
     let trend: string | null = null;
 
     // On the detail page, the precise estimate is often in a specific header or large text element
     $('div, span, p, h1, h2, td').each((_, el) => {
       const text = $(el).text().trim().replace(/\s+/g, ' ');
-
+      
       // Look for trend
       if (!trend && (text.includes('↑') || text.includes('↓'))) {
         const trendMatch = text.match(/(\(?[↑↓][^)]*\)?)/);
@@ -31,25 +31,26 @@ async function fetchPluginDetail(slug: string): Promise<{ ptEstimate: number | n
       }
 
       // Look for precise estimate
-      // We look for numbers that might be the estimate
-      // Avoid things that look like dates (2024-...) or versions (1.2.3)
-      const matches = text.match(/\b\d+([,.]\d+)*\b/g);
-      if (matches) {
-        for (const m of matches) {
-          const cleanM = m.replace(/[,.]/g, '');
-          const val = parseInt(cleanM, 10);
-
-          if (val > 0 && val < 100000000) {
-            // If it's a round number like 1,000,000, it's likely the bucket, not the precise estimate
-            const isRound = val >= 10 && (val % 10 === 0);
-
-            if (!ptEstimate || (!isRound && (ptEstimate % 10 === 0 || val > ptEstimate))) {
-              ptEstimate = val;
-            } else if (!ptEstimate) {
-              ptEstimate = val;
-            }
+      // We look for numbers that have commas or are just large digits
+      // But we avoid things that look like dates or versions
+      const cleanText = text.replace(/[,]/g, '');
+      if (/^\d+$/.test(cleanText)) {
+        const val = parseInt(cleanText, 10);
+        if (val > 1000) {
+          // If we find multiple, we usually want the largest one that isn't a round bucket
+          // (round buckets like 1000000 are less likely to be the "precise" estimate)
+          if (!ptEstimate || (val > ptEstimate && val % 1000 !== 0)) {
+            ptEstimate = val;
+          } else if (!ptEstimate) {
+            ptEstimate = val;
           }
         }
+      } else if (/^\d+(\.\d+)?[MK]$/i.test(cleanText)) {
+         // Handle 1.9M etc
+         const val = parseInstalls(text);
+         if (val > 1000 && (!ptEstimate || val > ptEstimate)) {
+           ptEstimate = val;
+         }
       }
     });
 
@@ -64,38 +65,32 @@ async function fetchPluginDetail(slug: string): Promise<{ ptEstimate: number | n
  * Helper to parse rows from the grid layout.
  */
 function parseRows(
-  $: cheerio.CheerioAPI,
-  targetSlug: string,
+  $: cheerio.CheerioAPI, 
+  targetSlug: string, 
   allRankedPlugins: RankedPlugin[],
   onTargetFound: (p: RankedPlugin) => void
 ): boolean {
-  const rows = $('div.grid.grid-cols-1.md\\:grid-cols-12, table tr, div.flex.flex-row.border-b, .plugin-row');
+  const rows = $('div.grid.grid-cols-1.md\\:grid-cols-12');
   let found = false;
 
   rows.each((_, row) => {
     const $row = $(row);
-
+    
     // Find the link to get the slug
-    const $link = $row.find('a[href*="/plugins/"]').first();
+    const $link = $row.find('a[href^="/plugins/"]').first();
     const href = $link.attr('href') || '';
     const slug = href.split('/').filter(Boolean).pop() || '';
-
-    if (!slug) return;
-
-    // Extract Rank: Look for the # symbol or any text that looks like a rank
-    let rankText = $row.find('span:contains("#"), td:first-child, .rank').first().text().trim();
-    if (!rankText && $row.text().includes('#')) {
-      const match = $row.text().match(/#(\d+[,.\d]*)/);
-      if (match) rankText = match[0];
-    }
-    const rank = parseInt(rankText.replace(/[#,]/g, ''), 10) || 0;
-
+    
+    // Extract Rank: Look for the # symbol in the span
+    const rankText = $row.find('span:contains("#")').first().text().trim();
+    const rank = parseInt(rankText.replace(/[#,]/g, ''), 10);
+    
     // Extract Name
-    const name = $row.find('h3, span.font-semibold, td:nth-child(2) a, .plugin-name').first().text().trim();
-
+    const name = $row.find('h3, span.font-semibold').first().text().trim();
+    
     // Extract all text parts from the row to find the data
     const textParts: string[] = [];
-    $row.find('span, div, p, h3, td, a').each((_, el) => {
+    $row.find('span, div, p, h3').each((_, el) => {
       const t = $(el).text().trim();
       if (t) textParts.push(t);
     });
@@ -103,16 +98,16 @@ function parseRows(
     let installsLabel = '';
     let ptEstimateLabel = '';
     let trendLabel = '';
-
+    
     for (const s of textParts) {
       const lower = s.toLowerCase();
-
+      
       // 1. Look for the official bucket (e.g., "300,000+")
       if (s.includes('+') && !lower.includes('ago') && !lower.includes('updated')) {
         installsLabel = s;
         continue;
       }
-
+      
       // 2. Look for trend (e.g., "↑1,786")
       if (s.includes('↑') || s.includes('↓')) {
         const trendMatch = s.match(/(\(?[↑↓][^)]*\)?)/);
@@ -126,29 +121,25 @@ function parseRows(
         }
         continue;
       }
-
-      // 3. Look for precise estimate (e.g., "373,215" or "373215" or "47")
+      
+      // 3. Look for precise estimate (e.g., "373,215" or "373215")
       // It should be a number with commas/dots, not the rank (which starts with #)
       if (/^\d+([,.]\d+)*[MK]?$/.test(s) && !s.startsWith('#')) {
+        // Avoid picking up the rank if it's just a number
         const val = parseInstalls(s);
-        if (val > 0) {
-          // If we already have a bucket, the precise estimate is usually different from it
-          if (installsLabel && s !== installsLabel) {
-            ptEstimateLabel = s;
-          } else if (!ptEstimateLabel) {
-            ptEstimateLabel = s;
-          }
+        if (val > 1000) { // Precise estimates are usually large
+          ptEstimateLabel = s;
         }
       }
     }
-
+    
     // Fallback for installsLabel if not found but we have a precise estimate
     if (!installsLabel && ptEstimateLabel) {
       const val = parseInstalls(ptEstimateLabel);
       // Round down to nearest major bucket if possible, or just use it
       installsLabel = ptEstimateLabel;
     }
-
+    
     const activeInstalls = parseInstalls(installsLabel);
     const ptEstimate = ptEstimateLabel ? parseInstalls(ptEstimateLabel) : null;
 
@@ -168,7 +159,7 @@ function parseRows(
       allRankedPlugins.push(plugin);
     }
 
-    if (slug.toLowerCase() === targetSlug.toLowerCase()) {
+    if (slug === targetSlug) {
       onTargetFound(plugin);
       found = true;
     }
@@ -243,16 +234,15 @@ export async function scrapePluginTracker(
 
       const $ = cheerio.load(response.data);
       const found = parseRows($, targetSlug, allRankedPlugins, (p) => { targetPlugin = p; });
-
+      
       // If we were crawling and found it, or if we just fetched the context page, we're good
       if (targetPlugin && page >= pageToFetch) {
         // We want at least some neighbors. If we have them, we can stop.
         if (allRankedPlugins.length > 1) break;
       }
-
-      const rowsFound = $('div.grid.grid-cols-1.md\\:grid-cols-12, table tr, div.flex.flex-row.border-b').length;
-      if (rowsFound === 0) break;
-
+      
+      if ($('div.grid.grid-cols-1.md\\:grid-cols-12').length === 0) break;
+      
       // If we haven't found the target yet and we are crawling
       if (!targetPlugin && page >= maxPages) break;
 

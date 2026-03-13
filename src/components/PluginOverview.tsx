@@ -17,27 +17,13 @@ export default function PluginOverview({ slug: initialSlug }: PluginOverviewProp
   const fetchData = async (targetSlug: string) => {
     setLoading(true);
     setError(null);
-
     try {
       const response = await fetch(`/api/plugin-estimate/${targetSlug}`);
-
-      const contentType = response.headers.get('content-type') || '';
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Request failed (${response.status}): ${text.slice(0, 200)}`);
-      }
-
-      if (!contentType.includes('application/json')) {
-        const text = await response.text();
-        throw new Error(`Expected JSON but got ${contentType || 'unknown type'}: ${text.slice(0, 200)}`);
-      }
-
-      const result: PluginEstimateResponse = await response.json();
+      if (!response.ok) throw new Error('Failed to fetch data');
+      const result = await response.json();
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
-      setData(null);
     } finally {
       setLoading(false);
     }
@@ -129,13 +115,13 @@ export default function PluginOverview({ slug: initialSlug }: PluginOverviewProp
                 <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                   <Download className="w-24 h-24" />
                 </div>
-
+                
                 <div className="relative space-y-4">
                   <div className="flex items-center gap-2 text-stone-500 text-sm font-medium uppercase tracking-widest">
                     <Download className="w-4 h-4" />
                     Active Installs
                   </div>
-
+                  
                   <div className="space-y-1">
                     <div className="text-5xl font-bold text-stone-900 tracking-tighter flex items-center gap-3">
                       {data.estimatedInstalls ? (

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { RankedPlugin } from './types.ts';
-import { parseInstalls } from './parseInstalls.ts';
+import { RankedPlugin } from './types';
+import { parseInstalls } from './parseInstalls';
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -26,7 +26,7 @@ export async function scrapePopularPlugins(
       });
 
       const $ = cheerio.load(response.data);
-
+      
       // The new structure seems to use h3 for plugin titles
       // We look for links inside h3 or elements with plugin-card class
       const pluginElements = $('.plugin-card, h3.entry-title, .plugin-section h3');
@@ -34,7 +34,7 @@ export async function scrapePopularPlugins(
       if (pluginElements.length === 0) {
         // Fallback: search for any plugin link in the main content
         $('#main .plugin-card, #main h3').each((_, el) => {
-          // logic below
+           // logic below
         });
       }
 
@@ -48,13 +48,13 @@ export async function scrapePopularPlugins(
         if (!pluginUrl.includes('/plugins/')) return;
 
         const slug = pluginUrl.split('/').filter(Boolean).pop() || '';
-
+        
         // Find active installs in the parent or sibling
         const $container = $el.closest('.plugin-card, article, section, .plugin-section > div');
-
+        
         // Try specific selectors first
         let activeInstallsLabel = $container.find('.active-installs, .installs, .plugin-card__stats-item--installs').first().text().trim();
-
+        
         // If not found, look for any text containing "+" and "install"
         if (!activeInstallsLabel) {
           $container.find('span, li, div, p').each((_, span) => {
@@ -65,7 +65,7 @@ export async function scrapePopularPlugins(
             }
           });
         }
-
+        
         // Final fallback: look for something that looks like an install count (e.g. "100,000+")
         if (!activeInstallsLabel) {
           $container.find('span, li, div').each((_, span) => {
@@ -100,7 +100,7 @@ export async function scrapePopularPlugins(
       if (targetPlugin && rankedPlugins[rankedPlugins.length - 1].activeInstalls < targetPlugin.activeInstalls) {
         break;
       }
-
+      
       await new Promise(resolve => setTimeout(resolve, 300));
 
     } catch (error) {

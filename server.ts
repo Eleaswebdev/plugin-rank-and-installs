@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
-import { estimateInstalls } from "./src/lib/wordpress/estimateInstalls.ts";
+import { estimateInstalls } from "./src/lib/wordpress/estimateInstalls";
 
 // Simple in-memory cache (1 hour)
 const cache = new Map<string, { data: any, timestamp: number }>();
@@ -10,7 +10,7 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = 5001;
 
   // Enable CORS for all origins with explicit options
   app.use(cors({
