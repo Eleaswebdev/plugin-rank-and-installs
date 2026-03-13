@@ -19,16 +19,16 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     credentials: true
   }));
-  
+
   // Explicitly handle OPTIONS preflight
   app.options('*', cors());
-  
+
   app.use(express.json());
 
   // API Route for plugin estimation (handles both with and without trailing slash)
   app.get(["/api/plugin-estimate/:slug", "/api/plugin-estimate/:slug/"], async (req, res) => {
     const { slug } = req.params;
-    
+
     // Check cache
     const cached = cache.get(slug);
     if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
@@ -37,10 +37,10 @@ async function startServer() {
 
     try {
       const result = await estimateInstalls(slug);
-      
+
       // Store in cache
       cache.set(slug, { data: result, timestamp: Date.now() });
-      
+
       res.json(result);
     } catch (error) {
       console.error(`Error estimating for ${slug}:`, error);
@@ -48,20 +48,13 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+  // --- Serve other static files (images, fonts, etc.) ---
+  app.use(express.static(path.join(__dirname, 'dist')));
+
+  // --- SPA fallback ---
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
