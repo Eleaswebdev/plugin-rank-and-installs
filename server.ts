@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
-import { estimateInstalls } from "./src/lib/wordpress/estimateInstalls";
+import { estimateInstalls } from "./src/lib/wordpress/estimateInstalls.ts";
 
 // Simple in-memory cache (1 hour)
 const cache = new Map<string, { data: any, timestamp: number }>();

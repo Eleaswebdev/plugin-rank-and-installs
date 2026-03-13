@@ -1,8 +1,8 @@
-import { RankedPlugin, InstallEstimateMeta, PluginEstimateResponse } from './types';
-import { getBracketUpperBound } from './brackets';
-import { scrapePopularPlugins } from './scrapePopularPlugins';
-import { scrapePluginTracker } from './scrapePluginTracker';
-import { parseInstalls } from './parseInstalls';
+import { RankedPlugin, InstallEstimateMeta, PluginEstimateResponse } from './types.ts';
+import { getBracketUpperBound } from './brackets.ts';
+import { scrapePopularPlugins } from './scrapePopularPlugins.ts';
+import { scrapePluginTracker } from './scrapePluginTracker.ts';
+import { parseInstalls } from './parseInstalls.ts';
 import axios from 'axios';
 
 /**
@@ -21,7 +21,7 @@ export async function estimateInstalls(slug: string): Promise<PluginEstimateResp
   const officialBucketLabel = String(officialData?.active_installs || "0+");
   const officialBucketValue = parseInstalls(officialBucketLabel);
   const name = officialData?.name || slug;
-  
+
   // 2. Try to find in WP.org Popular (first 5 pages / 100 plugins)
   let { rankedPlugins, targetPlugin } = await scrapePopularPlugins(slug, 5);
   let source = "WordPress.org Popular";
@@ -31,7 +31,9 @@ export async function estimateInstalls(slug: string): Promise<PluginEstimateResp
   if (ptResult.targetPlugin) {
     // If we found it on PluginTracker, we use their data as it's often more accurate
     // and provides a more precise estimate base.
-    if (!targetPlugin || ptResult.targetPlugin.rank < 500) {
+    // We prefer PluginTracker if we don't have a target yet, or if PT has a precise estimate,
+    // or if the PT rank is reasonably high.
+    if (!targetPlugin || ptResult.targetPlugin.ptEstimate || ptResult.targetPlugin.rank > 0) {
       rankedPlugins = ptResult.rankedPlugins;
       targetPlugin = ptResult.targetPlugin;
       source = "PluginTracker.io";
@@ -52,7 +54,7 @@ export async function estimateInstalls(slug: string): Promise<PluginEstimateResp
   // 4. Determine the bracket to use. 
   // We prioritize the official API bucket as the source of truth for the bracket.
   let bracketLowerBound = officialBucketValue;
-  
+
   // If the scraper found a valid bracket that is close to the official one, use it.
   if (targetPlugin.activeInstalls > 0) {
     const ratio = targetPlugin.activeInstalls / officialBucketValue;
@@ -60,10 +62,10 @@ export async function estimateInstalls(slug: string): Promise<PluginEstimateResp
       bracketLowerBound = targetPlugin.activeInstalls;
     }
   }
-  
+
   const bracketUpperBound = getBracketUpperBound(bracketLowerBound);
   const rank = targetPlugin.rank;
-  
+
   // 5. If PluginTracker provided a precise estimate, use it as a strong hint
   if (targetPlugin.ptEstimate) {
     // We trust PluginTracker's precise estimate if it's "sane" relative to the official bucket
@@ -101,7 +103,7 @@ export async function estimateInstalls(slug: string): Promise<PluginEstimateResp
   // 6. Fallback to interpolation if no precise estimate
   // Find all plugins in the same bracket to determine the rank range
   const sameBracketPlugins = rankedPlugins.filter(p => p.activeInstalls === bracketLowerBound);
-  
+
   let nextBracketRank: number;
   let previousBracketRank: number;
 
@@ -112,7 +114,7 @@ export async function estimateInstalls(slug: string): Promise<PluginEstimateResp
   } else {
     // Fallback to transition points if we don't have enough same-bracket plugins
     const lastAbove = [...rankedPlugins].reverse().find(p => p.activeInstalls >= bracketUpperBound);
-    nextBracketRank = lastAbove ? lastAbove.rank : Math.max(0, rank - 100); // Use a wider default range
+    nextBracketRank = lastAbove ? lastAbove.rank : Math.max(0, rank - 100);
 
     const firstBelow = rankedPlugins.find(p => p.activeInstalls > 0 && p.activeInstalls < bracketLowerBound);
     previousBracketRank = firstBelow ? firstBelow.rank - 1 : Math.max(rank + 100, rankedPlugins[rankedPlugins.length - 1].rank);
@@ -122,13 +124,13 @@ export async function estimateInstalls(slug: string): Promise<PluginEstimateResp
   // If we only have one plugin in the bracket, we can't interpolate accurately,
   // so we assume a typical bracket size for this rank range.
   const pluginsInBracket = Math.max(20, previousBracketRank - nextBracketRank);
-  
+
   // Linear interpolation
   const installsPerRank = bracketSize / pluginsInBracket;
   const distanceFromUpper = Math.max(0, rank - nextBracketRank);
-  
+
   let estimatedInstalls = Math.round(bracketUpperBound - (distanceFromUpper * installsPerRank));
-  
+
   // Clamp to bracket
   estimatedInstalls = Math.max(bracketLowerBound, Math.min(bracketUpperBound, estimatedInstalls));
 
